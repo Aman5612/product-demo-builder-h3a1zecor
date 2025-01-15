@@ -1,0 +1,59 @@
+
+  generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  }
+  
+  datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+  }
+        
+model User {
+  id               Int       @id @default(autoincrement())
+  email            String    @unique
+  password         String?
+  username         String    @unique
+  name             String?
+  role             String    @default("user")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  scripts          Script[]
+  credentials      Credential[]
+  recordings       Recording[]
+  passwordResetOtp String?
+  otpExpiry        DateTime?
+}
+
+model Script {
+  id               Int       @id @default(autoincrement())
+  content          String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+}
+
+model Credential {
+  id               Int       @id @default(autoincrement())
+  websiteUrl       String
+  username         String
+  password         String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+}
+
+model Recording {
+  id               Int       @id @default(autoincrement())
+  googleDriveUrl   String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  userId           Int
+  user             User      @relation(fields: [userId], references: [id])
+}
