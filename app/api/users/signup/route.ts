@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
 
 type SignupRequestBody = {
   email: string;
   password: string;
-  role?: string;
   name?: string;
 };
 
 export async function POST(request: Request) {
   try {
     const body: SignupRequestBody = await request.json();
-    const { email, password, role, name } = body;
+    const { email, password, name } = body;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -37,30 +38,21 @@ export async function POST(request: Request) {
     const user = await prisma.user.create({
       data: {
         email,
-        username: email?.split("@")[0],
-        name: name || "Albert",
+        username: email.split("@")[0],
+        name: name || "",
         password: hashedPassword,
-        role: (role || "user") as any,
+        role: "user", // Default role
       },
     });
 
-    // Generate a JWT token
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
-      process.env.JWT_SECRET || "secret",
-      { expiresIn: "10d" } // Token expires in 10 days
-    );
-
+    // Create session for the new user
+    const session = await getServerSession(authOptions);
+    
     return NextResponse.json(
       {
-        message: "sugnup successful",
+        message: "Signup successful",
         success: true,
-        data: { token: token, user: user },
+        userId: user.id
       },
       { status: 201 }
     );

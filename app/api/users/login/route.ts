@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
 
 type LoginRequestBody = {
   email: string;
@@ -20,53 +19,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find the user by email
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Get server session
+    const session = await getServerSession(authOptions);
 
-    if (!user) {
+    if (!session) {
       return NextResponse.json(
-        { message: "Invalid credentials", success: false },
+        { message: "Authentication failed", success: false },
         { status: 401 }
       );
     }
 
-    if (user.password === null) {
-      // means user signed up with google
-      return NextResponse.json(
-        {
-          message: "User signed up with Google. Please use Google login.",
-          success: false,
-        },
-        { status: 401 }
-      );
-    }
-
-    // Compare the provided password with the stored hash
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      return NextResponse.json(
-        { message: "Invalid credentials", success: false },
-        { status: 401 }
-      );
-    }
-
-    // Generate a JWT token
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
-      process.env.JWT_SECRET || "secret",
-      { expiresIn: "10d" } // Token expires in 10 days
-    );
     return NextResponse.json(
       {
-        message: "user logged in successfully",
+        message: "Login successful",
         success: true,
-        data: { token, user: user },
+        session,
       },
       { status: 200 }
     );

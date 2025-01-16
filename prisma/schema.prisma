@@ -24,6 +24,8 @@ model User {
   recordings       Recording[]
   passwordResetOtp String?
   otpExpiry        DateTime?
+  googleDriveAccessToken String?
+  googleDriveRefreshToken String?
 }
 
 model Script {

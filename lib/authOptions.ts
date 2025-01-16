@@ -1,6 +1,15 @@
-import { AuthOptions, getServerSession } from "next-auth";
+import { AuthOptions, getServerSession, User } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
+import prisma from "@/lib/prisma";
+import bcrypt from "bcrypt";
+
+declare module "next-auth" {
+  interface User {
+    googleDriveAccessToken?: string;
+    googleDriveRefreshToken?: string;
+  }
+}
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -11,44 +20,49 @@ export const authOptions: AuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (
-          credentials?.email === undefined ||
-          credentials?.password === undefined
-        ) {
+        if (!credentials?.email || !credentials?.password) {
           throw new Error("Please provide email and password");
         }
-        try {
-          const response = await fetch(
-            `${process.env.APP_URL}/api/users/login`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(credentials),
-            }
-          );
-          const data = await response.json();
-          if (response.ok && data.data) {
-            const user = {
-              id: data.data.user.id,
-              username: data.data.user.username,
-              name: data.data.user.name,
-              email: credentials?.email,
-              token: data.data.token,
-              role: data.data.user.role,
-            };
-            return user;
-          } else {
-            throw new Error(data.message || "Something went wrong!");
-          }
-        } catch (error: any) {
-          console.log(error.message);
-          throw new Error(error.message);
+        
+        // Find user in database
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email }
+        });
+
+        if (!user || !user.password) {
+          throw new Error("Invalid email or password");
         }
+
+        // Verify password
+        const isValid = await bcrypt.compare(
+          credentials.password,
+          user.password
+        );
+
+        if (!isValid) {
+          throw new Error("Invalid email or password");
+        }
+
+        return {
+          id: user.id.toString(),
+          email: user.email,
+          name: user.name || "",
+          role: user.role,
+          username: user.username || "",
+          token: "" // Not used directly since NextAuth handles tokens
+        } as User;
       },
     }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      authorization: {
+        params: {
+          scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+          access_type: 'offline',
+          prompt: 'consent'
+        }
+      }
     }),
   ],
   session: {
@@ -87,6 +101,10 @@ export const authOptions: AuthOptions = {
         token.email = user.email;
         token.role = user.role;
       }
+      if (account?.provider === 'google' && account?.access_token) {
+        token.googleDriveAccessToken = account.access_token;
+        token.googleDriveRefreshToken = account.refresh_token;
+      }
       return token;
     },
     async session({ session, token }: any) {
@@ -97,7 +115,10 @@ export const authOptions: AuthOptions = {
           name: token.name ?? "",
           email: token.email,
           role: token.role,
-        };
+          token: token.token,
+          googleDriveAccessToken: token.googleDriveAccessToken,
+          googleDriveRefreshToken: token.googleDriveRefreshToken
+        } as User;
         session.token = token.token;
       }
       return session;

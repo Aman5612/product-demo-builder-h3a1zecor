@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import api from "@/lib/api";
 
+
 interface Script {
   id: number;
   content: string;
@@ -44,14 +45,24 @@ const DemoScriptPage = () => {
   const fetchScripts = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/api/users/${session?.user?.id}/scripts`);
-      setScripts(res?.data?.data);
+      const response = await api.get(`/api/users/${session?.user?.id}/scripts`);
+      if (response.data?.data) {
+        setScripts(response.data.data);
+      } else {
+        toast.error("No scripts found");
+        setScripts([]);
+      }
     } catch (error) {
       if (isAxiosError(error)) {
-        console.error(error.response?.data?.message ?? "Something went wrong");
+        const errorMessage = error.response?.data?.message || 
+          error.response?.data?.error ||
+          "Failed to fetch scripts";
+        toast.error(errorMessage);
       } else {
         console.error(error);
+        toast.error("An unexpected error occurred while fetching scripts");
       }
+      setScripts([]);
     } finally {
       setLoading(false);
     }
@@ -65,24 +76,38 @@ const DemoScriptPage = () => {
 
   const handleSaveScript = async () => {
     try {
+      if (!content.trim()) {
+        toast.error("Script content cannot be empty");
+        return;
+      }
+
       setLoading(true);
       const payload = { content };
+      let response;
+      
       if (editScriptId) {
-        await api.patch(
+        response = await api.patch(
           `/api/users/${session?.user?.id}/scripts/${editScriptId}`,
           payload
         );
-        toast.success("Script updated successfully");
+        toast.success(response.data?.message || "Script updated successfully");
       } else {
-        await api.post(`/api/users/${session?.user?.id}/scripts`, payload);
-        toast.success("Script saved successfully");
+        response = await api.post(
+          `/api/users/${session?.user?.id}/scripts`, 
+          payload
+        );
+        toast.success(response.data?.message || "Script saved successfully");
       }
+
       setContent("");
       setEditScriptId(null);
-      fetchScripts();
+      await fetchScripts();
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error(error.response?.data?.message ?? "Something went wrong");
+        const errorMessage = error.response?.data?.message || 
+          error.response?.data?.error ||
+          "Something went wrong";
+        toast.error(errorMessage);
       } else {
         console.error(error);
         toast.error("An unexpected error occurred");
@@ -95,15 +120,20 @@ const DemoScriptPage = () => {
   const handleDeleteScript = async (scriptId: number) => {
     try {
       setLoading(true);
-      await api.delete(`/api/users/${session?.user?.id}/scripts/${scriptId}`);
-      toast.success("Script deleted successfully");
-      fetchScripts();
+      const response = await api.delete(
+        `/api/users/${session?.user?.id}/scripts/${scriptId}`
+      );
+      toast.success(response.data?.message || "Script deleted successfully");
+      await fetchScripts();
     } catch (error) {
       if (isAxiosError(error)) {
-        toast.error(error.response?.data?.message ?? "Something went wrong");
+        const errorMessage = error.response?.data?.message || 
+          error.response?.data?.error ||
+          "Failed to delete script";
+        toast.error(errorMessage);
       } else {
         console.error(error);
-        toast.error("An unexpected error occurred");
+        toast.error("An unexpected error occurred while deleting script");
       }
     } finally {
       setLoading(false);

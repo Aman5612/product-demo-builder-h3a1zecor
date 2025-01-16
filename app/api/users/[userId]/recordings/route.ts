@@ -1,74 +1,73 @@
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
-import { sendEmail } from '@/lib/email-service';
+import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/authOptions'
+import prisma from '@/lib/prisma'
+
+export async function GET(
+  req: Request,
+  { params }: { params: { userId: string } }
+) {
+  const session = await getServerSession(authOptions)
+  
+  if (!session || session.user.id !== params.userId) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    )
+  }
+
+  try {
+    const recordings = await prisma.recording.findMany({
+      where: {
+        userId: parseInt(params.userId)
+      },
+      select: {
+        id: true,
+        googleDriveUrl: true,
+        createdAt: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    return NextResponse.json(recordings)
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to fetch recordings' },
+      { status: 500 }
+    )
+  }
+}
 
 export async function POST(
-  request: Request,
-  { params }: { params: { userId: string } },
+  req: Request,
+  { params }: { params: { userId: string } }
 ) {
+  const session = await getServerSession(authOptions)
+  
+  if (!session || session.user.id !== params.userId) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    )
+  }
+
+  const { driveUrl } = await req.json()
+
   try {
-    const userId = parseInt(params.userId, 10);
-    if (isNaN(userId)) {
-      return NextResponse.json(
-        { success: false, message: 'Invalid user ID' },
-        { status: 400 },
-      );
-    }
-
-    const body = await request.json();
-    const googleDriveAccessToken = String(body.googleDriveAccessToken);
-
-    if (!googleDriveAccessToken) {
-      return NextResponse.json(
-        { success: false, message: 'Google Drive access token is required' },
-        { status: 400 },
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, message: 'User not found' },
-        { status: 404 },
-      );
-    }
-
     const recording = await prisma.recording.create({
       data: {
-        googleDriveUrl: 'https://drive.google.com/recording',
-        userId: userId,
-      },
-    });
+        googleDriveUrl: driveUrl,
+        userId: parseInt(params.userId)
+      }
+    })
 
-    await sendEmail({
-      to: user.email,
-      template: {
-        subject: 'Recording Saved Successfully',
-        html: '<h1>Your recording has been saved to Google Drive</h1>',
-        text: 'Your recording has been saved to Google Drive',
-      },
-    });
-
+    return NextResponse.json(recording)
+  } catch (error) {
     return NextResponse.json(
-      {
-        success: true,
-        message: 'Recording saved to Google Drive',
-        data: {
-          id: recording.id,
-          googleDriveUrl: recording.googleDriveUrl,
-          createdAt: recording.createdAt.toISOString(),
-        },
-      },
-      { status: 201 },
-    );
-  } catch (error: any) {
-    console.error('Error saving recording:', error);
-    return NextResponse.json(
-      { success: false, message: 'Internal server error' },
-      { status: 500 },
-    );
+      { error: 'Failed to save recording' },
+      { status: 500 }
+    )
   }
 }
