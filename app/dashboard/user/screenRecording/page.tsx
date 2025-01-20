@@ -1,243 +1,262 @@
-'use client'
-import { useState, useRef, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
-import { Button } from '@/components/ui/button'
-import { useToast } from '@/components/ui/use-toast'
+"use client";
+import React, { useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2 } from 'lucide-react';
 
-interface ScriptStep {
-  action: string
-  selector: string
-  value?: string
-}
-
-interface Script {
-  url: string
-  credentials: {
-    username: string
-    password: string
-  }
-  steps: ScriptStep[]
-}
-
-interface RecordingState {
-  recording: boolean
-  recordingUrl: string
-  isLoading: boolean
-  error: string | null
-  script: Script | null
-  scriptRunning: boolean
-}
-
-export default function ScreenRecordingPage() {
-  const [recording, setRecording] = useState(false)
-  const [recordingUrl, setRecordingUrl] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [script, setScript] = useState<Script | null>(null)
-  const [scriptRunning, setScriptRunning] = useState(false)
-  const mediaRecorder = useRef<MediaRecorder | null>(null)
-  const recordedChunks = useRef<Blob[]>([])
-  const { toast } = useToast()
-  const { data: session, status } = useSession()
-
-  // Cleanup media resources
-  useEffect(() => {
-    return () => {
-      if (mediaRecorder.current) {
-        mediaRecorder.current.stream.getTracks().forEach(track => track.stop())
-      }
-      if (recordingUrl) {
-        URL.revokeObjectURL(recordingUrl)
+const parseAutomationScript = (aiResponse, url, credentials) => {
+  // Helper to convert GraphQL-style queries to executable Playwright commands
+  const convertQueryToCommands = (queryString) => {
+    const commands = [];
+    
+    // Extract selector and action patterns
+    const selectorPattern = /selector:\s*['"]([^'"]+)['"]/g;
+    const actionPattern = /(value|click):\s*["']([^"']*)['"]/g;
+    
+    let match;
+    
+    while ((match = selectorPattern.exec(queryString)) !== null) {
+      const selector = match[1];
+      actionPattern.lastIndex = match.index;
+      const actionMatch = actionPattern.exec(queryString);
+      
+      if (actionMatch) {
+        const [_, action, value] = actionMatch;
+        if (action === 'value') {
+          commands.push({
+            type: 'fill',
+            selector,
+            value
+          });
+        } else if (action === 'click') {
+          commands.push({
+            type: 'click',
+            selector
+          });
+        }
       }
     }
-  }, [recordingUrl])
+    
+    return commands;
+  };
 
-  if (status === 'loading') {
-    return <div>Loading...</div>
+  // Generate executable script from commands
+  const generateExecutableScript = (queries) => {
+    const script = `
+const { chromium } = require('playwright');
+
+async function main() {
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  try {
+    // Navigate to the website
+    await page.goto('${url}');
+    console.log('✓ Navigation completed');
+
+    ${credentials.email && credentials.password ? `
+    // Handle login
+    await page.waitForTimeout(2000);
+    await page.fill('input[type="email"]', '${credentials.email}');
+    await page.waitForTimeout(1000);
+    await page.fill('input[type="password"]', '${credentials.password}');
+    await page.waitForTimeout(1000);
+    await page.click('button[type="submit"]');
+    await page.waitForTimeout(2000);
+    console.log('✓ Login completed');
+    ` : ''}
+
+    // Execute commands
+    ${queries.map(query => {
+      const commands = convertQueryToCommands(query);
+      return commands.map(cmd => {
+        if (cmd.type === 'fill') {
+          return `
+    await page.waitForSelector('${cmd.selector}');
+    await page.fill('${cmd.selector}', '${cmd.value}');
+    await page.waitForTimeout(1000);`;
+        } else if (cmd.type === 'click') {
+          return `
+    await page.waitForSelector('${cmd.selector}');
+    await page.click('${cmd.selector}');
+    await page.waitForTimeout(1000);`;
+        }
+      }).join('\n');
+    }).join('\n')}
+
+    console.log('✓ Automation completed successfully');
+
+  } catch (error) {
+    console.error('Error during automation:', error);
+  } finally {
+    await browser.close();
+  }
+}
+
+main().catch(console.error);`;
+    return script;
+  };
+
+  // Extract queries from AI response
+  const queryMatches = aiResponse.match(/`{([^`]+)}`/g);
+  if (!queryMatches) {
+    throw new Error('No valid queries found in AI response');
   }
 
-  if (!session?.user?.id) {
-    return <div>Please sign in to access screen recording</div>
-  }
+  const queries = queryMatches.map(q => q.replace(/^`{|}`$/g, ''));
+  return generateExecutableScript(queries);
+};
+
+const ScriptExecutor = () => {
+  const [queries, setQueries] = useState('');
+  const [url, setUrl] = useState('');
+  const [credentials, setCredentials] = useState({ email: '', password: '' });
+  const [generatedScript, setGeneratedScript] = useState('');
+  const [executionStatus, setExecutionStatus] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+
+  const generateScript = () => {
+    setIsGenerating(true);
+    try {
+      const script = parseAutomationScript(queries, url, credentials);
+      setGeneratedScript(script);
+      setExecutionStatus('Script generated and parsed successfully');
+    } catch (error) {
+      setExecutionStatus('Error generating script: ' + error.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const executeScript = async () => {
-    if (!script || !session?.user?.id) return
-    
+    setIsExecuting(true);
+    setExecutionStatus('Executing script...');
+
     try {
-      setScriptRunning(true)
-      setIsLoading(true)
-      
-      const response = await fetch(`/api/users/${session.user.id}/scripts`, {
+      // In a real implementation, you would need to:
+      // 1. Send the script to a backend service
+      // 2. Have the service execute it in a controlled environment
+      // 3. Stream back the results
+      const response = await fetch('/api/execute-script', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(script)
-      })
-      
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ script: generatedScript })
+      });
+
       if (!response.ok) {
-        throw new Error('Failed to execute script')
+        throw new Error('Script execution failed');
       }
-      
-      // Start recording after successful script execution
-      await startRecording()
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'Failed to execute script',
-        variant: 'destructive'
-      })
+
+      const result = await response.json();
+      setExecutionStatus('Script execution completed: ' + result.message);
+    } catch (error) {
+      setExecutionStatus('Error executing script: ' + error.message);
     } finally {
-      setScriptRunning(false)
-      setIsLoading(false)
+      setIsExecuting(false);
     }
-  }
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true
-      })
-      
-      mediaRecorder.current = new MediaRecorder(stream)
-      mediaRecorder.current.ondataavailable = handleDataAvailable
-      mediaRecorder.current.onstop = handleStop
-      mediaRecorder.current.start()
-      setRecording(true)
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'Failed to start recording',
-        variant: 'destructive'
-      })
-    }
-  }
-
-  const handleDataAvailable = (e: BlobEvent) => {
-    if (e.data.size > 0) {
-      recordedChunks.current.push(e.data)
-    }
-  }
-
-  const handleStop = async () => {
-    if (!mediaRecorder.current) return
-    
-    const blob = new Blob(recordedChunks.current, {
-      type: 'video/webm'
-    })
-    
-    const url = URL.createObjectURL(blob)
-    setRecordingUrl(url)
-    setRecording(false)
-    
-    try {
-      const formData = new FormData()
-      formData.append('file', blob, `recording_${Date.now()}.webm`)
-      
-      const uploadResponse = await fetch(`/api/users/${session.user.id}/recordings/upload`, {
-        method: 'POST',
-        body: formData
-      })
-      
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload recording')
-      }
-      
-      const { driveUrl } = await uploadResponse.json()
-      await saveRecording(driveUrl)
-      
-      toast({
-        title: 'Success',
-        description: 'Recording uploaded successfully',
-      })
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'Failed to upload recording',
-        variant: 'destructive'
-      })
-    }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorder.current) {
-      mediaRecorder.current.stop()
-      mediaRecorder.current.stream.getTracks().forEach(track => track.stop())
-    }
-  }
-
-  const saveRecording = async (driveUrl: string) => {
-    if (!session?.user?.id) return
-    
-    try {
-      const response = await fetch(`/api/users/${session.user.id}/recordings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ driveUrl })
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to save recording')
-      }
-    } catch (err) {
-      console.error('Error saving recording:', err)
-      throw err
-    }
-  }
+  };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Screen Recording</h1>
-      
-      <div className="space-y-4 mb-4">
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold">Script Configuration</h2>
-          <textarea
-            className="w-full p-2 border rounded"
-            placeholder="Enter script JSON"
-            onChange={(e) => {
-              try {
-                setScript(JSON.parse(e.target.value))
-              } catch {
-                setScript(null)
-              }
-            }}
-          />
-        </div>
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>AgentQL Script Executor</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Website URL</label>
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Enter website URL"
+              className="w-full"
+            />
+          </div>
 
-        <div className="space-x-4">
-          <Button 
-            onClick={executeScript}
-            disabled={!script || scriptRunning}
-          >
-            {scriptRunning ? 'Executing Script...' : 'Execute Script'}
-          </Button>
-          <Button 
-            onClick={startRecording}
-            disabled={recording || scriptRunning}
-          >
-            Start Recording
-          </Button>
-          <Button 
-            onClick={stopRecording}
-            disabled={!recording}
-            variant="destructive"
-          >
-            Stop Recording
-          </Button>
-        </div>
-      </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Login Email</label>
+              <Input
+                value={credentials.email}
+                onChange={(e) => setCredentials(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="Enter login email"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Login Password</label>
+              <Input
+                type="password"
+                value={credentials.password}
+                onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
+                placeholder="Enter login password"
+              />
+            </div>
+          </div>
 
-      {recordingUrl && (
-        <video 
-          src={recordingUrl} 
-          controls 
-          className="w-full max-w-2xl"
-        />
-      )}
+          <div>
+            <label className="block text-sm font-medium mb-2">AI-Generated Queries</label>
+            <Textarea
+              value={queries}
+              onChange={(e) => setQueries(e.target.value)}
+              placeholder="Paste the AI-generated queries here"
+              className="w-full h-40 font-mono text-sm"
+            />
+          </div>
+
+          <div className="flex space-x-4">
+            <Button
+              onClick={generateScript}
+              disabled={isGenerating || !queries || !url}
+              className="flex-1"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Parsing & Generating...
+                </>
+              ) : 'Parse & Generate Script'}
+            </Button>
+
+            <Button
+              onClick={executeScript}
+              disabled={isExecuting || !generatedScript}
+              className="flex-1"
+              variant="outline"
+            >
+              {isExecuting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Executing...
+                </>
+              ) : 'Execute Script'}
+            </Button>
+          </div>
+
+          {executionStatus && (
+            <Alert>
+              <AlertDescription>{executionStatus}</AlertDescription>
+            </Alert>
+          )}
+
+          {generatedScript && (
+            <div>
+              <label className="block text-sm font-medium mb-2">Generated Executable Script</label>
+              <Textarea
+                value={generatedScript}
+                readOnly
+                className="w-full h-96 font-mono text-sm"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
-}
+  );
+};
+
+export default ScriptExecutor;

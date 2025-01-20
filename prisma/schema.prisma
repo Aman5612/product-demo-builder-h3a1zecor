@@ -1,14 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
 
-  generator client {
-    provider = "prisma-client-js"
-    binaryTargets = ["native", "rhel-openssl-3.0.x"]
-  }
-  
-  datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
-  }
-        
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RecordingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
 model User {
   id               Int       @id @default(autoincrement())
   email            String    @unique
@@ -36,26 +42,34 @@ model Script {
 
   userId           Int
   user             User      @relation(fields: [userId], references: [id])
+  recordings       Recording[]
 }
 
 model Credential {
-  id               Int       @id @default(autoincrement())
-  websiteUrl       String
-  username         String
-  password         String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  websiteUrl String
+  username  String
+  password  String
+  usernameSelector String
+  passwordSelector String
+  submitSelector String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userId           Int
-  user             User      @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, websiteUrl])
 }
 
 model Recording {
-  id               Int       @id @default(autoincrement())
-  googleDriveUrl   String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  userId           Int
-  user             User      @relation(fields: [userId], references: [id])
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  scriptId  Int?
+  script    Script?  @relation(fields: [scriptId], references: [id])
+  googleDriveUrl String?
+  status    RecordingStatus @default(PENDING)
 }

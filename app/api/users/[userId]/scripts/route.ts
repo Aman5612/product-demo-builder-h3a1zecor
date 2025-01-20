@@ -7,6 +7,47 @@ import puppeteer, { Page } from 'puppeteer'
 import fs from 'fs'
 import path from 'path'
 import { uploadToDrive } from '@/lib/google-drive'
+import OpenAI from 'openai'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+})
+
+async function analyzePage(page: Page, goal: string) {
+  // Get page content and structure
+  const content = await page.evaluate(() => {
+    const elements = Array.from(document.querySelectorAll('*'))
+    return elements.map(el => ({
+      tag: el.tagName,
+      id: el.id,
+      classes: Array.from(el.classList),
+      text: el.textContent?.trim(),
+      type: el.getAttribute('type'),
+      name: el.getAttribute('name'),
+      placeholder: el.getAttribute('placeholder'),
+      role: el.getAttribute('role'),
+      ariaLabel: el.getAttribute('aria-label')
+    }))
+  })
+
+  // Get visible elements
+  const visibleElements = content.filter(el => {
+    const rect = document.querySelector(`#${el.id}`)?.getBoundingClientRect()
+    return rect && rect.width > 0 && rect.height > 0
+  })
+
+  // Ask GPT to analyze and suggest next steps
+  const prompt = `Given this page structure and elements, suggest the best way to ${goal}. 
+  Available elements: ${JSON.stringify(visibleElements)}`
+
+  const completion = await openai.chat.completions.create({
+    messages: [{ role: 'user', content: prompt }],
+    model: 'gpt-4',
+    temperature: 0.7
+  })
+
+  return completion.choices[0].message.content
+}
 
 declare module 'puppeteer' {
   interface Page {
@@ -16,18 +57,14 @@ declare module 'puppeteer' {
 
 const scriptSchema = z.object({
   url: z.string().url(),
+  goal: z.string(),
   credentials: z.object({
     username: z.string(),
     password: z.string(),
-    usernameSelector: z.string().default('input[name="username"]'),
-    passwordSelector: z.string().default('input[name="password"]'),
+    usernameSelector: z.string().default('#email'),
+    passwordSelector: z.string().default('#password'), 
     submitSelector: z.string().default('button[type="submit"]')
   }),
-  steps: z.array(z.object({
-    action: z.string(),
-    selector: z.string(),
-    value: z.string().optional()
-  })),
   record: z.boolean().default(false)
 })
 
@@ -84,7 +121,7 @@ export async function POST(
 
   try {
     const body = await req.json()
-    const { url, credentials, steps } = scriptSchema.parse(body)
+    const { url, goal, credentials } = scriptSchema.parse(body)
     
     const browser = await puppeteer.launch({
       headless: true,
@@ -156,43 +193,87 @@ export async function POST(
       await page.goto(url, { waitUntil: 'networkidle2' })
       
       // Login with credentials
-      await page.type('input[name="username"]', credentials.username)
-      await page.type('input[name="password"]', credentials.password)
-      await page.click('button[type="submit"]')
-      await page.waitForNavigation({ waitUntil: 'networkidle2' })
-      
-      // Execute script steps
-      for (const step of steps) {
-        switch (step.action) {
-          case 'click':
-            await page.click(step.selector)
-            break
-          case 'type':
-            if (!step.value) throw new Error('Missing value for type action')
-            await page.type(step.selector, step.value)
-            break
-          case 'wait':
-            await page.waitForSelector(step.selector)
-            break
-          default:
-            throw new Error(`Unknown action: ${step.action}`)
-        }
+      try {
+        await page.waitForSelector(credentials.usernameSelector, { timeout: 10000 })
+        await page.type(credentials.usernameSelector, credentials.username)
         
-        // Add small delay between steps
-        await page.waitForTimeout(500)
+        await page.waitForSelector(credentials.passwordSelector, { timeout: 10000 })
+        await page.type(credentials.passwordSelector, credentials.password)
+        
+        await page.waitForSelector(credentials.submitSelector, { timeout: 10000 })
+        await page.click(credentials.submitSelector)
+        
+        try {
+          await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 })
+        } catch (err) {
+          console.warn('Navigation timeout exceeded, continuing with script')
+        }
+      } catch (error) {
+        console.error('Login failed:', error)
+        throw new Error(`Login failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+      
+      // Generate and execute steps using GPT
+      const analysis = await analyzePage(page, goal)
+      if (!analysis) {
+        throw new Error('Failed to generate steps from GPT analysis')
+      }
+      
+      let steps: any[]
+      try {
+        steps = JSON.parse(analysis)
+        if (!Array.isArray(steps)) {
+          throw new Error('Generated steps must be an array')
+        }
+      } catch (error) {
+        throw new Error(`Failed to parse GPT steps: ${error instanceof Error ? error.message : 'Invalid JSON'}`)
+      }
+      
+      for (const step of steps) {
+        try {
+          switch (step.action) {
+            case 'click':
+              await page.waitForSelector(step.selector)
+              await page.click(step.selector)
+              break
+            case 'type':
+              if (!step.value) throw new Error('Missing value for type action')
+              await page.waitForSelector(step.selector)
+              await page.type(step.selector, step.value)
+              break
+            case 'wait':
+              await page.waitForTimeout(step.duration || 1000)
+              break
+            case 'navigate':
+              await page.goto(step.url, { waitUntil: 'networkidle2' })
+              break
+            default:
+              throw new Error(`Unknown action: ${step.action}`)
+          }
+          
+          // Add small delay between steps
+          await page.waitForTimeout(500)
+        } catch (error) {
+          console.error(`Step failed: ${step.action} on ${step.selector}`)
+          // Get updated analysis and continue
+          const recovery = await analyzePage(page, goal)
+          steps.push(...JSON.parse(recovery))
+        }
       }
       
       // Stop recording if it was started
-      if (body.record && recordingPath) {
+      if (body.record) {
         await page.evaluate(() => (window as any).stopRecording())
         
         // Upload recording to Google Drive
-        const fileContent = fs.readFileSync(recordingPath)
-        const blob = new Blob([fileContent], { type: 'video/webm' })
-        recordingUrl = await uploadToDrive(blob)
-        
-        // Clean up temporary file
-        fs.unlinkSync(recordingPath)
+        if (recordingPath) {
+          const fileContent = fs.readFileSync(recordingPath)
+          const blob = new Blob([fileContent], { type: 'video/webm' })
+          recordingUrl = await uploadToDrive(blob)
+          
+          // Clean up temporary file
+          fs.unlinkSync(recordingPath)
+        }
       }
 
       // Save script to database

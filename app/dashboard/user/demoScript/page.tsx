@@ -1,238 +1,137 @@
 "use client";
+import React, { useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 
-import React, { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { toast } from "sonner";
-import { isAxiosError } from "axios";
-import { LoaderCircle, Plus, Trash, Edit } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import api from "@/lib/api";
+const StepToQueryConverter = () => {
+  const [url, setUrl] = useState('');
+  const [steps, setSteps] = useState('');
+  const [generatedQueries, setGeneratedQueries] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
+  const generatePrompt = (url:string, steps:any) => {
+    return `Given this website URL: ${url}
+    
+And these steps to automate:
+${steps}
 
-interface Script {
-  id: number;
-  content: string;
-  createdAt: string;
-}
+Generate AgentQL queries following these rules:
+1. Create separate queries for different pages/sections
+2. Include proper element selectors that will be visible at that step
+3. Consider parent-child relationships for elements that appear after clicking others
+4. Use clear, descriptive names for query fields
+5. Format as a JavaScript object with named queries
 
-const DemoScriptPage = () => {
-  const { data: session } = useSession();
-  const [scripts, setScripts] = useState<Script[]>([]);
-  const [content, setContent] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
-  const [editScriptId, setEditScriptId] = useState<number | null>(null);
-
-  const fetchScripts = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`/api/users/${session?.user?.id}/scripts`);
-      if (response.data?.data) {
-        setScripts(response.data.data);
-      } else {
-        toast.error("No scripts found");
-        setScripts([]);
-      }
-    } catch (error) {
-      if (isAxiosError(error)) {
-        const errorMessage = error.response?.data?.message || 
-          error.response?.data?.error ||
-          "Failed to fetch scripts";
-        toast.error(errorMessage);
-      } else {
-        console.error(error);
-        toast.error("An unexpected error occurred while fetching scripts");
-      }
-      setScripts([]);
-    } finally {
-      setLoading(false);
+Example format:
+{
+  LOGIN_FORM: \`{
+    login_form {
+      email_input
+      password_input
+      login_button
     }
+  }\`
+}`;
   };
 
-  useEffect(() => {
-    if (session?.user?.id) {
-      fetchScripts();
-    }
-  }, [session]);
-
-  const handleSaveScript = async () => {
+  const generateQueries = async () => {
+    setIsLoading(true);
     try {
-      if (!content.trim()) {
-        toast.error("Script content cannot be empty");
-        return;
-      }
+      const response = await fetch('https://opengig-mvp-dev.openai.azure.com/openai/deployments/gpt-4o-mvp-dev/chat/completions?api-version=2024-02-15-preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': 'c41e9ded584f4593a1046dc46026e81f'
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert at converting user steps into AgentQL queries. Consider element visibility and proper wait times between actions.'
+            },
+            {
+              role: 'user',
+              content: generatePrompt(url, steps)
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000
+        })
+      });
 
-      setLoading(true);
-      const payload = { content };
-      let response;
-      
-      if (editScriptId) {
-        response = await api.patch(
-          `/api/users/${session?.user?.id}/scripts/${editScriptId}`,
-          payload
-        );
-        toast.success(response.data?.message || "Script updated successfully");
-      } else {
-        response = await api.post(
-          `/api/users/${session?.user?.id}/scripts`, 
-          payload
-        );
-        toast.success(response.data?.message || "Script saved successfully");
-      }
+      const data = await response.json();
+      const generatedContent = data.choices[0].message.content;
 
-      setContent("");
-      setEditScriptId(null);
-      await fetchScripts();
+      // Format the response
+      const formattedQueries = `const QUERIES = ${generatedContent};\n\n` +
+        `// Example usage with playwright:\n` +
+        `async function automateSteps(page) {\n` +
+        `  // Remember to add proper wait times between actions\n` +
+        `  await page.waitForTimeout(2000);\n` +
+        `  const elements = await page.queryElements(QUERIES.SOME_QUERY);\n` +
+        `  // Continue with your automation steps\n` +
+        `}`;
+
+      setGeneratedQueries(formattedQueries);
     } catch (error) {
-      if (isAxiosError(error)) {
-        const errorMessage = error.response?.data?.message || 
-          error.response?.data?.error ||
-          "Something went wrong";
-        toast.error(errorMessage);
-      } else {
-        console.error(error);
-        toast.error("An unexpected error occurred");
-      }
+      console.error('Error generating queries:', error);
+      setGeneratedQueries('Error generating queries. Please try again.');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteScript = async (scriptId: number) => {
-    try {
-      setLoading(true);
-      const response = await api.delete(
-        `/api/users/${session?.user?.id}/scripts/${scriptId}`
-      );
-      toast.success(response.data?.message || "Script deleted successfully");
-      await fetchScripts();
-    } catch (error) {
-      if (isAxiosError(error)) {
-        const errorMessage = error.response?.data?.message || 
-          error.response?.data?.error ||
-          "Failed to delete script";
-        toast.error(errorMessage);
-      } else {
-        console.error(error);
-        toast.error("An unexpected error occurred while deleting script");
-      }
-    } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold mb-6">Demo Scripts</h2>
-      <Card className="mb-8">
+    <div className="max-w-4xl mx-auto p-4">
+      <Card>
         <CardHeader>
-          <CardTitle>Create New Script</CardTitle>
+          <CardTitle>Step to AgentQL Query Converter</CardTitle>
         </CardHeader>
-        <CardContent>
-          <Textarea
-            value={content}
-            onChange={(e: any) => setContent(e.target.value)}
-            placeholder="Enter your script content..."
-            className="min-h-[200px]"
-          />
-        </CardContent>
-        <CardFooter>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Website URL</label>
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Enter website URL"
+              className="w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Steps to Automate</label>
+            <Textarea
+              value={steps}
+              onChange={(e) => setSteps(e.target.value)}
+              placeholder="Enter steps to automate (one per line)"
+              className="w-full h-40"
+            />
+          </div>
+
           <Button
-            onClick={handleSaveScript}
-            disabled={loading || !content.trim()}
+            onClick={generateQueries}
+            disabled={isLoading || !url || !steps}
             className="w-full"
           >
-            {loading ? (
-              <LoaderCircle className="animate-spin" />
-            ) : editScriptId ? (
-              "Update Script"
-            ) : (
-              "Save Script"
-            )}
+            {isLoading ? 'Generating...' : 'Generate Queries'}
           </Button>
-        </CardFooter>
-      </Card>
 
-      <div className="space-y-4">
-        {scripts?.map((script) => (
-          <Card key={script?.id}>
-            <CardHeader>
-              <CardTitle className="flex justify-between items-center">
-                <span>Script #{script?.id}</span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setContent(script?.content);
-                      setEditScriptId(script?.id);
-                    }}
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" size="sm">
-                        <Trash className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Are you absolutely sure?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This action cannot be undone. This will permanently
-                          delete the script.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => handleDeleteScript(script?.id)}
-                        >
-                          Continue
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-line">{script?.content}</p>
-            </CardContent>
-            <CardFooter>
-              <p className="text-sm text-muted-foreground">
-                Created at: {new Date(script?.createdAt).toLocaleString()}
-              </p>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
+          {generatedQueries && (
+            <div>
+              <label className="block text-sm font-medium mb-2">Generated Queries</label>
+              <Textarea
+                value={generatedQueries}
+                readOnly
+                className="w-full h-96 font-mono text-sm"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
-export default DemoScriptPage;
+export default StepToQueryConverter;
