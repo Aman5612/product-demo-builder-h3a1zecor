@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -8,68 +8,65 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum RecordingStatus {
-  PENDING
-  IN_PROGRESS
-  COMPLETED
-  FAILED
-}
-
 model User {
-  id               Int       @id @default(autoincrement())
-  email            String    @unique
-  password         String?
-  username         String    @unique
-  name             String?
-  role             String    @default("user")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  scripts          Script[]
-  credentials      Credential[]
-  recordings       Recording[]
-  passwordResetOtp String?
-  otpExpiry        DateTime?
-  googleDriveAccessToken String?
+  id                      Int          @id @default(autoincrement())
+  email                   String       @unique
+  password                String?
+  username                String       @unique
+  name                    String?
+  role                    String       @default("user")
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  passwordResetOtp        String?
+  otpExpiry               DateTime?
+  googleDriveAccessToken  String?
   googleDriveRefreshToken String?
+  credentials             Credential[]
+  recordings              Recording[]
+  scripts                 Script[]
 }
 
 model Script {
-  id               Int       @id @default(autoincrement())
-  content          String
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  userId           Int
-  user             User      @relation(fields: [userId], references: [id])
-  recordings       Recording[]
+  id         Int         @id @default(autoincrement())
+  content    String
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  userId     Int
+  recordings Recording[]
+  user       User        @relation(fields: [userId], references: [id])
 }
 
 model Credential {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  websiteUrl String
-  username  String
-  password  String
-  usernameSelector String
+  id               Int      @id @default(autoincrement())
+  websiteUrl       String
+  username         String
+  password         String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  userId           Int
   passwordSelector String
-  submitSelector String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user      User     @relation(fields: [userId], references: [id])
+  submitSelector   String
+  usernameSelector String
+  user             User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, websiteUrl])
 }
 
 model Recording {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  scriptId  Int?
-  script    Script?  @relation(fields: [scriptId], references: [id])
+  id             Int             @id @default(autoincrement())
   googleDriveUrl String?
-  status    RecordingStatus @default(PENDING)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  userId         Int
+  scriptId       Int?
+  status         RecordingStatus @default(PENDING)
+  script         Script?         @relation(fields: [scriptId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+}
+
+enum RecordingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }

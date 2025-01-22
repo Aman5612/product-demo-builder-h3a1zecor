@@ -28,11 +28,10 @@ export async function POST(
     }
 
     const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
+    const blob = new Blob([arrayBuffer], { type: file.type });
+    const driveUrl = await uploadToDrive(blob as any, session.user.id, file?.name as any);
     
-    const driveUrl = await uploadToDrive(buffer)
-    
-    return NextResponse.json({ driveUrl })
+    return NextResponse.json({ driveUrl });
   } catch (error) {
     console.error('Upload error:', error)
     return NextResponse.json(

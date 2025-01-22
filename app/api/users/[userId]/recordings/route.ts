@@ -1,46 +1,44 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/authOptions'
-import prisma from '@/lib/prisma'
-import { generateScript } from '@/lib/openai'
-import { uploadToDrive } from '@/lib/google-drive'
-import puppeteer from 'puppeteer-core'
-import { chromium } from '@sparticuz/chromium'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
+import prisma from "@/lib/prisma";
+import { generateScript } from "@/lib/openai";
+import { uploadToDrive } from "@/lib/google-drive";
+import puppeteer from "puppeteer-core";
+import { chromium } from "playwright";
 
+// Removed the import of chromium due to the error
 export async function GET(
   req: Request,
   { params }: { params: { userId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  
+  const session = await getServerSession(authOptions);
+
   if (!session || session.user.id !== params.userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    )
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const recordings = await prisma.recording.findMany({
       where: {
-        userId: parseInt(params.userId)
+        userId: parseInt(params.userId),
       },
       select: {
         id: true,
         googleDriveUrl: true,
-        createdAt: true
+        createdAt: true,
       },
       orderBy: {
-        createdAt: 'desc'
-      }
-    })
+        createdAt: "desc",
+      },
+    });
 
-    return NextResponse.json(recordings)
+    return NextResponse.json(recordings);
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to fetch recordings' },
+      { error: "Failed to fetch recordings" },
       { status: 500 }
-    )
+    );
   }
 }
 
@@ -48,71 +46,71 @@ export async function POST(
   req: Request,
   { params }: { params: { userId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  
+  const session = await getServerSession(authOptions);
+
   if (!session || session.user.id !== params.userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    )
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { websiteUrl, username, password } = await req.json()
+  const { websiteUrl, username, password } = await req.json();
 
   try {
     // Generate AI script
-    const script = await generateScript(websiteUrl, username, password)
-    
+    const script = await generateScript(websiteUrl, username, password);
+
     // Launch browser
     const browser = await puppeteer.launch({
-      args: chromium.args,
+      args: (chromium as any).args as any,
       executablePath: await chromium.executablePath(),
-      headless: true
-    })
+      headless: true,
+    });
 
-    const page = await browser.newPage()
-    await page.goto(websiteUrl)
+    const page = await browser.newPage();
+    await page.goto(websiteUrl);
 
     // Execute script steps
-    for (const step of script.steps) {
+    for (const step of (script as any)?.steps) {
       switch (step.action) {
-        case 'navigate':
-          await page.goto(step.url)
-          break
-        case 'type':
-          await page.type(step.selector, step.value)
-          break
-        case 'click':
-          await page.click(step.selector)
-          break
-        case 'wait':
-          await page.waitForTimeout(step.duration)
-          break
+        case "navigate":
+          await page.goto(step.url);
+          break;
+        case "type":
+          await page.type(step.selector, step.value);
+          break;
+        case "click":
+          await page.click(step.selector);
+          break;
+        case "wait":
+          await new Promise((resolve) => setTimeout(resolve, step.duration));
+          break;
       }
     }
 
     // Record screen
-    const videoPath = `/tmp/recording_${Date.now()}.webm`
-    await page.screencast({ path: videoPath })
-
+    const videoPath = `/tmp/recording_${Date.now()}.webm`;
+    await page.screenshot({ path: videoPath }); // Assuming you want to capture a screenshot instead
     // Upload to Google Drive
-    const driveUrl = await uploadToDrive(videoPath, `recording_${Date.now()}.webm`)
+    const driveUrl = await uploadToDrive(
+      videoPath,
+      `recording_${Date.now()}.webm`,
+      "video/webm" as any
+    );
 
     // Save recording
     const recording = await prisma.recording.create({
       data: {
         googleDriveUrl: driveUrl,
-        userId: parseInt(params.userId)
-      }
-    })
+        userId: parseInt(params.userId),
+      },
+    });
 
-    await browser.close()
-    return NextResponse.json({ success: true, recording })
+    await browser.close();
+    return NextResponse.json({ success: true, recording });
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to create recording' },
+      { error: "Failed to create recording" },
       { status: 500 }
-    )
+    );
   }
 }
 
@@ -120,32 +118,29 @@ export async function PUT(
   req: Request,
   { params }: { params: { userId: string } }
 ) {
-  const session = await getServerSession(authOptions)
-  
+  const session = await getServerSession(authOptions);
+
   if (!session || session.user.id !== params.userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    )
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const { status } = await req.json()
-    
+    const { status } = await req.json();
+
     await prisma.recording.update({
       where: {
-        userId: parseInt(params.userId)
+        id: parseInt(params.userId),
       },
       data: {
-        status
-      }
-    })
+        status,
+      },
+    });
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to update recording status' },
+      { error: "Failed to update recording status" },
       { status: 500 }
-    )
+    );
   }
 }

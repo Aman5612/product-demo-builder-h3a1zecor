@@ -6,11 +6,12 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"next dev\" \"ts-node scripts/automationServer.ts\"",
+    "automation-server": "ts-node scripts/automationServer.ts",
     "docker:up": "docker-compose up -d && sleep 60",
     "db:init": "env-cmd -f .env npx prisma generate && prisma db push --schema ./prisma/schema.prisma",
     "build:dev": "npx prisma generate && tsc --noEmit",
-    "build": "npx prisma generate && prisma db push --schema ./prisma/schema.prisma --accept-data-loss && next build",
+    "build": "next build",
     "start": " next start",
     "lint": "next lint",
     "docker:down": "docker-compose down",
@@ -25,6 +26,7 @@
     "@nivo/line": "^0.87.0",
     "@nivo/pie": "^0.87.0",
     "@nivo/scatterplot": "^0.87.0",
+    "@playwright/test": "^1.49.1",
     "@prisma/client": "^5.21.1",
     "@prisma/internals": "^5.21.1",
     "@radix-ui/react-accordion": "^1.2.1",
@@ -70,10 +72,12 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "1.0.0",
+    "cors": "^2.8.5",
     "date-fns": "^3.6.0",
     "dotenv": "^16.4.7",
     "embla-carousel-react": "^8.3.0",
     "env-cmd": "^10.1.0",
+    "express": "^4.21.2",
     "framer-motion": "^11.15.0",
     "googleapis": "^144.0.0",
     "gsap": "^3.12.5",
@@ -85,6 +89,8 @@
     "next-themes": "^0.3.0",
     "nodemailer": "^6.9.16",
     "openai": "^4.77.0",
+    "playwright": "^1.49.1",
+    "playwright-core": "^1.49.1",
     "puppeteer": "^24.1.0",
     "puppeteer-core": "^24.1.0",
     "razorpay": "^2.9.5",
@@ -107,20 +113,29 @@
     "yup": "^1.4.0",
     "zod": "^3.23.8"
   },
+  "browser": {
+    "fs": false,
+    "path": false,
+    "os": false
+  },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
-    "@types/node": "^20.17.1",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.17.14",
     "@types/nodemailer": "^6.4.16",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-slick": "^0.23.13",
     "@types/uuid": "^10.0.0",
+    "concurrently": "^9.1.2",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.5",
     "ignore-loader": "^0.1.2",
     "postcss": "^8.4.47",
     "prisma": "^5.21.1",
     "tailwindcss": "^3.4.14",
-    "typescript": "^5.6.3"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }

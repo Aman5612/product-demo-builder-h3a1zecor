@@ -1,133 +1,96 @@
 "use client";
-import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';
-
-const parseAutomationScript = (aiResponse, url, credentials) => {
-  // Helper to convert GraphQL-style queries to executable Playwright commands
-  const convertQueryToCommands = (queryString) => {
-    const commands = [];
-    
-    // Extract selector and action patterns
-    const selectorPattern = /selector:\s*['"]([^'"]+)['"]/g;
-    const actionPattern = /(value|click):\s*["']([^"']*)['"]/g;
-    
-    let match;
-    
-    while ((match = selectorPattern.exec(queryString)) !== null) {
-      const selector = match[1];
-      actionPattern.lastIndex = match.index;
-      const actionMatch = actionPattern.exec(queryString);
-      
-      if (actionMatch) {
-        const [_, action, value] = actionMatch;
-        if (action === 'value') {
-          commands.push({
-            type: 'fill',
-            selector,
-            value
-          });
-        } else if (action === 'click') {
-          commands.push({
-            type: 'click',
-            selector
-          });
-        }
-      }
-    }
-    
-    return commands;
-  };
-
-  // Generate executable script from commands
-  const generateExecutableScript = (queries) => {
-    const script = `
-const { chromium } = require('playwright');
-
-async function main() {
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-
-  try {
-    // Navigate to the website
-    await page.goto('${url}');
-    console.log('✓ Navigation completed');
-
-    ${credentials.email && credentials.password ? `
-    // Handle login
-    await page.waitForTimeout(2000);
-    await page.fill('input[type="email"]', '${credentials.email}');
-    await page.waitForTimeout(1000);
-    await page.fill('input[type="password"]', '${credentials.password}');
-    await page.waitForTimeout(1000);
-    await page.click('button[type="submit"]');
-    await page.waitForTimeout(2000);
-    console.log('✓ Login completed');
-    ` : ''}
-
-    // Execute commands
-    ${queries.map(query => {
-      const commands = convertQueryToCommands(query);
-      return commands.map(cmd => {
-        if (cmd.type === 'fill') {
-          return `
-    await page.waitForSelector('${cmd.selector}');
-    await page.fill('${cmd.selector}', '${cmd.value}');
-    await page.waitForTimeout(1000);`;
-        } else if (cmd.type === 'click') {
-          return `
-    await page.waitForSelector('${cmd.selector}');
-    await page.click('${cmd.selector}');
-    await page.waitForTimeout(1000);`;
-        }
-      }).join('\n');
-    }).join('\n')}
-
-    console.log('✓ Automation completed successfully');
-
-  } catch (error) {
-    console.error('Error during automation:', error);
-  } finally {
-    await browser.close();
-  }
-}
-
-main().catch(console.error);`;
-    return script;
-  };
-
-  // Extract queries from AI response
-  const queryMatches = aiResponse.match(/`{([^`]+)}`/g);
-  if (!queryMatches) {
-    throw new Error('No valid queries found in AI response');
-  }
-
-  const queries = queryMatches.map(q => q.replace(/^`{|}`$/g, ''));
-  return generateExecutableScript(queries);
-};
+import React, { useState } from "react";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
 
 const ScriptExecutor = () => {
-  const [queries, setQueries] = useState('');
-  const [url, setUrl] = useState('');
-  const [credentials, setCredentials] = useState({ email: '', password: '' });
-  const [generatedScript, setGeneratedScript] = useState('');
-  const [executionStatus, setExecutionStatus] = useState('');
+  const [queries, setQueries] = useState("");
+  const [url, setUrl] = useState("");
+  const [credentials, setCredentials] = useState({ email: "", password: "" });
+  const [generatedScript, setGeneratedScript] = useState("");
+  const [executionStatus, setExecutionStatus] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+
+  const parseQueries = (queryString: string) => {
+    const matches = queryString.match(/(\w+):\s*`{([^`]+)}`/g);
+    if (!matches) return {};
+
+    const queries: Record<string, string> = {};
+    matches.forEach((match) => {
+      const [queryName, queryContent] = match.split(/:\s*`/);
+      queries[queryName.trim()] = queryContent.slice(0, -1);
+    });
+    return queries;
+  };
 
   const generateScript = () => {
     setIsGenerating(true);
     try {
-      const script = parseAutomationScript(queries, url, credentials);
-      setGeneratedScript(script);
-      setExecutionStatus('Script generated and parsed successfully');
-    } catch (error) {
-      setExecutionStatus('Error generating script: ' + error.message);
+      const parsedQueries = parseQueries(queries);
+      // Store script logic as a string without require statements
+      const scriptLogic = `
+// Script configuration
+const QUERIES = ${JSON.stringify(parsedQueries, null, 2)};
+const CONFIG = {
+  url: '${url}',
+  credentials: ${JSON.stringify(credentials)}
+};
+
+// Main automation logic
+async function executeAutomation(page) {
+  try {
+    await page.goto(CONFIG.url);
+    console.log('✓ Navigation completed');
+
+    ${
+      credentials.email && credentials.password
+        ? `
+    // Handle login
+    const loginElements = await page.queryElements(QUERIES.LOGIN_FORM);
+    if (loginElements?.login_form) {
+      console.log('✓ Found login form elements');
+      await loginElements.login_form.email_input.fill(CONFIG.credentials.email);
+      await page.waitForTimeout(1000);
+      await loginElements.login_form.password_input.fill(CONFIG.credentials.password);
+      await page.waitForTimeout(1000);
+      await loginElements.login_form.login_button.click();
+      await page.waitForNavigation();
+      console.log('✓ Login completed');
+    }`
+        : ""
+    }
+
+    // Handle main automation steps
+    ${Object.keys(parsedQueries)
+      .map((queryName) => {
+        if (queryName === "LOGIN_FORM") return "";
+        return `
+    console.log('Executing ${queryName} steps...');
+    const ${queryName.toLowerCase()}Elements = await page.queryElements(QUERIES["${queryName}"]);
+    if (${queryName.toLowerCase()}Elements) {
+      console.log('Found ${queryName} elements:', ${queryName.toLowerCase()}Elements);
+    }`;
+      })
+      .join("\n")}
+
+    console.log('✓ Automation completed successfully');
+    return { success: true, message: 'Automation completed successfully' };
+
+  } catch (error) {
+    console.error('Error during automation:', error);
+    return { success: false, message: error.message };
+  }
+}`;
+
+      setGeneratedScript(scriptLogic);
+      setExecutionStatus("Script generated successfully. Ready for execution.");
+    } catch (error: any) {
+      setExecutionStatus("Error generating script: " + error.message);
     } finally {
       setIsGenerating(false);
     }
@@ -135,29 +98,51 @@ const ScriptExecutor = () => {
 
   const executeScript = async () => {
     setIsExecuting(true);
-    setExecutionStatus('Executing script...');
+    setExecutionStatus("Executing script...");
+
+    console.log("This is the generated script");
 
     try {
-      // In a real implementation, you would need to:
-      // 1. Send the script to a backend service
-      // 2. Have the service execute it in a controlled environment
-      // 3. Stream back the results
-      const response = await fetch('/api/execute-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script: generatedScript })
+      const response = await fetch("/api/execute-script", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url,
+          queries: parseQueries(queries),
+          credentials,
+          script: generatedScript,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Script execution failed');
+        console.log(
+          "This is api response after execution error->>>>",
+          response
+        );
+        const errorData = await response.json();
+        throw new Error(
+          errorData.message || `HTTP error! status: ${response.status}`
+        );
       }
 
       const result = await response.json();
-      setExecutionStatus('Script execution completed: ' + result.message);
-    } catch (error) {
-      setExecutionStatus('Error executing script: ' + error.message);
+      setExecutionStatus(result?.message || "Script executed successfully!");
+    } catch (error: any) {
+      console.error("Execution error:", error);
+      setExecutionStatus(`Execution error: ${error.message}`);
     } finally {
       setIsExecuting(false);
+    }
+  };
+
+  const copyScriptToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedScript);
+      setExecutionStatus("Script copied to clipboard!");
+    } catch (err) {
+      setExecutionStatus("Failed to copy script. Please copy manually.");
     }
   };
 
@@ -169,7 +154,9 @@ const ScriptExecutor = () => {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Website URL</label>
+            <label className="block text-sm font-medium mb-2">
+              Website URL
+            </label>
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -180,26 +167,39 @@ const ScriptExecutor = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Login Email</label>
+              <label className="block text-sm font-medium mb-2">
+                Login Email
+              </label>
               <Input
                 value={credentials.email}
-                onChange={(e) => setCredentials(prev => ({ ...prev, email: e.target.value }))}
+                onChange={(e) =>
+                  setCredentials((prev) => ({ ...prev, email: e.target.value }))
+                }
                 placeholder="Enter login email"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Login Password</label>
+              <label className="block text-sm font-medium mb-2">
+                Login Password
+              </label>
               <Input
                 type="password"
                 value={credentials.password}
-                onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
+                onChange={(e) =>
+                  setCredentials((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
                 placeholder="Enter login password"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">AI-Generated Queries</label>
+            <label className="block text-sm font-medium mb-2">
+              AI-Generated Queries
+            </label>
             <Textarea
               value={queries}
               onChange={(e) => setQueries(e.target.value)}
@@ -219,22 +219,39 @@ const ScriptExecutor = () => {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Parsing & Generating...
                 </>
-              ) : 'Parse & Generate Script'}
+              ) : (
+                "Parse & Generate Script"
+              )}
             </Button>
 
             <Button
-              onClick={executeScript}
+              onClick={()=>{
+                console.log("Executing script->>");
+                executeScript();
+              }}
               disabled={isExecuting || !generatedScript}
               className="flex-1"
-              variant="outline"
+              variant="default"
             >
               {isExecuting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Executing...
+                  Executing Script...
                 </>
-              ) : 'Execute Script'}
+              ) : (
+                "Execute Script"
+              )}
             </Button>
+
+            {generatedScript && (
+              <Button
+                onClick={copyScriptToClipboard}
+                className="flex-1"
+                variant="outline"
+              >
+                Copy Script to Clipboard
+              </Button>
+            )}
           </div>
 
           {executionStatus && (
@@ -245,7 +262,9 @@ const ScriptExecutor = () => {
 
           {generatedScript && (
             <div>
-              <label className="block text-sm font-medium mb-2">Generated Executable Script</label>
+              <label className="block text-sm font-medium mb-2">
+                Generated Script
+              </label>
               <Textarea
                 value={generatedScript}
                 readOnly

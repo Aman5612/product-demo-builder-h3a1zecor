@@ -8,7 +8,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export async function generateScript(recordingId: number, prompt: string) {
+export async function generateScript(recordingId: number, prompt: string, password: any) {
   try {
     // Update recording status to IN_PROGRESS
     await prisma.recording.update({

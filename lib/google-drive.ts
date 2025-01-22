@@ -9,7 +9,7 @@ if (typeof window !== 'undefined') {
   throw new Error('Google Drive API can only be used server-side');
 }
 
-export async function uploadToDrive(file: Blob): Promise<string> {
+export async function uploadToDrive(videoPath: string, p0: string, file: Blob): Promise<string> {
   try {
     const session = await getServerSession(authOptions);
     

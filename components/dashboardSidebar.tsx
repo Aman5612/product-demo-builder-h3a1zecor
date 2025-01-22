@@ -45,14 +45,16 @@ export default function SidebarComponent({
                       <User className="h-5 w-5" />
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex flex-col gap-0.5 text-left leading-none">
-                    <span className="text-base font-medium">
-                      {session?.user?.name ?? "Loading"}
-                    </span>
-                    <span className="text-sm text-muted-foreground">
-                      View profile
-                    </span>
-                  </div>
+                  <Link href="/dashboard/user">
+                    <div className="flex flex-col gap-0.5 text-left leading-none">
+                      <span className="text-base font-medium">
+                        {session?.user?.name ?? "Loading"}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        View profile
+                      </span>
+                    </div>
+                  </Link>
                 </div>
               </SidebarMenuButton>
             </SidebarMenuItem>

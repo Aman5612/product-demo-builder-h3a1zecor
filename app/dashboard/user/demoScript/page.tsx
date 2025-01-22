@@ -11,29 +11,51 @@ const StepToQueryConverter = () => {
   const [generatedQueries, setGeneratedQueries] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const generatePrompt = (url:string, steps:any) => {
+  const generatePrompt = (url: string, steps: string) => {
     return `Given this website URL: ${url}
     
 And these steps to automate:
 ${steps}
 
-Generate AgentQL queries following these rules:
-1. Create separate queries for different pages/sections
-2. Include proper element selectors that will be visible at that step
-3. Consider parent-child relationships for elements that appear after clicking others
-4. Use clear, descriptive names for query fields
-5. Format as a JavaScript object with named queries
+Generate AgentQL queries following this EXACT structure without any deviation:
 
-Example format:
-{
+const QUERIES = {
   LOGIN_FORM: \`{
     login_form {
       email_input
       password_input
       login_button
     }
+  }\`,
+
+  DASHBOARD: \`{
+    create_test_button
+    test_table {
+      test_row(JSM) {
+        action_button
+      }
+    }
+    action_popup {
+      view_option_button
+      edit_option_button
+    }
   }\`
-}`;
+};
+
+IMPORTANT RULES:
+1. Follow the EXACT format shown above - do not add any selector attributes, fill(), click(), or other methods
+2. Use simple field names without any parentheses or attributes
+3. Use proper indentation with 2 spaces
+4. Organize queries by page/section with clear names in UPPERCASE
+5. Use nested objects to represent parent-child relationships
+6. Do not include any implementation details like selectors or actions
+7. Keep field names simple and descriptive (e.g., email_input, not email_input_field)
+8. Start the response with "const QUERIES = {"
+9. End with "};"
+10. Use backticks (\`) for each query string
+11. Place commas between multiple queries
+
+Your response should ONLY contain the QUERIES object in the exact format shown above, nothing else.`;
   };
 
   const generateQueries = async () => {
@@ -49,14 +71,14 @@ Example format:
           messages: [
             {
               role: 'system',
-              content: 'You are an expert at converting user steps into AgentQL queries. Consider element visibility and proper wait times between actions.'
+              content: 'You are an expert at converting user steps into AgentQL queries. You must follow the exact format provided without any deviation. Do not include any implementation details, selectors, or methods in the queries.'
             },
             {
               role: 'user',
               content: generatePrompt(url, steps)
             }
           ],
-          temperature: 0.7,
+          temperature: 0.3, // Reduced temperature for more consistent output
           max_tokens: 2000
         })
       });
@@ -64,17 +86,8 @@ Example format:
       const data = await response.json();
       const generatedContent = data.choices[0].message.content;
 
-      // Format the response
-      const formattedQueries = `const QUERIES = ${generatedContent};\n\n` +
-        `// Example usage with playwright:\n` +
-        `async function automateSteps(page) {\n` +
-        `  // Remember to add proper wait times between actions\n` +
-        `  await page.waitForTimeout(2000);\n` +
-        `  const elements = await page.queryElements(QUERIES.SOME_QUERY);\n` +
-        `  // Continue with your automation steps\n` +
-        `}`;
-
-      setGeneratedQueries(formattedQueries);
+      // No additional formatting needed since we want the exact format
+      setGeneratedQueries(generatedContent);
     } catch (error) {
       console.error('Error generating queries:', error);
       setGeneratedQueries('Error generating queries. Please try again.');
