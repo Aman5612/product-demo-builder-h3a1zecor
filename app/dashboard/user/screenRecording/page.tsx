@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
+import GoogleDriveIntegration from "@/components/GoogleDriveIntegration";
 
 const ScriptExecutor = () => {
   const [queries, setQueries] = useState("");
@@ -16,6 +17,11 @@ const ScriptExecutor = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [videoPath, setVideoPath] = useState("");
+  const [googleDriveFileId, setGoogleDriveFileId] = useState("");
+
+  const handleGoogleDriveConnect = (fileId: string) => {
+    setGoogleDriveFileId(fileId);
+  };
 
   const parseQueries = (queryString: string) => {
     const matches = queryString.match(/(\w+):\s*`{([^`]+)}`/g);
@@ -291,6 +297,8 @@ async function executeAutomation(page) {
                 Download Recording
               </Button>
             )}
+
+            {/* <GoogleDriveIntegration onConnect={handleGoogleDriveConnect} /> */}
           </div>
 
           {executionStatus && (

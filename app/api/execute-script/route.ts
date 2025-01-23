@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     console.log("This is the body", body);
 
-    const response = await fetch("http://localhost:3001/execute", {
+    const response = await fetch(`${process.env.APP_URL}/execute`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
