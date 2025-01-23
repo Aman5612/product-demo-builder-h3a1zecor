@@ -11,7 +11,7 @@
     "docker:up": "docker-compose up -d && sleep 60",
     "db:init": "env-cmd -f .env npx prisma generate && prisma db push --schema ./prisma/schema.prisma",
     "build:dev": "npx prisma generate && tsc --noEmit",
-    "build": "npx prisma migrate reset && npx prisma migrate deploy && npx prisma db pull && npx prisma generate && next build",
+    "build": "npx prisma migrate deploy && npx prisma db pull && npx prisma generate && next build",
     "start": " next start",
     "lint": "next lint",
     "docker:down": "docker-compose down",
