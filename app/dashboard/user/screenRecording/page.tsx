@@ -15,6 +15,7 @@ const ScriptExecutor = () => {
   const [executionStatus, setExecutionStatus] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [videoPath, setVideoPath] = useState("");
 
   const parseQueries = (queryString: string) => {
     const matches = queryString.match(/(\w+):\s*`{([^`]+)}`/g);
@@ -99,8 +100,7 @@ async function executeAutomation(page) {
   const executeScript = async () => {
     setIsExecuting(true);
     setExecutionStatus("Executing script...");
-
-    console.log("This is the generated script");
+    setVideoPath(""); // Reset video path
 
     try {
       const response = await fetch("/api/execute-script", {
@@ -117,10 +117,6 @@ async function executeAutomation(page) {
       });
 
       if (!response.ok) {
-        console.log(
-          "This is api response after execution error->>>>",
-          response
-        );
         const errorData = await response.json();
         throw new Error(
           errorData.message || `HTTP error! status: ${response.status}`
@@ -129,11 +125,45 @@ async function executeAutomation(page) {
 
       const result = await response.json();
       setExecutionStatus(result?.message || "Script executed successfully!");
+
+      console.log("This is the result after execution->>>>", result);
+
+      // If a video path is returned, set it in state
+      if (result.videoPath) {
+        setVideoPath(result.videoPath);
+      }
     } catch (error: any) {
       console.error("Execution error:", error);
       setExecutionStatus(`Execution error: ${error.message}`);
     } finally {
       setIsExecuting(false);
+    }
+  };
+
+  const downloadVideo = async () => {
+    if (!videoPath) return;
+
+    try {
+      const response = await fetch(`/api/execute-script?filename=${videoPath}`);
+
+      if (!response.ok) {
+        throw new Error("Video download failed");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = videoPath;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setExecutionStatus("Video downloaded successfully!");
+    } catch (error) {
+      console.error("Video download error:", error);
+      setExecutionStatus("Failed to download video");
     }
   };
 
@@ -225,7 +255,7 @@ async function executeAutomation(page) {
             </Button>
 
             <Button
-              onClick={()=>{
+              onClick={() => {
                 console.log("Executing script->>");
                 executeScript();
               }}
@@ -250,6 +280,15 @@ async function executeAutomation(page) {
                 variant="outline"
               >
                 Copy Script to Clipboard
+              </Button>
+            )}
+            {videoPath && (
+              <Button
+                onClick={downloadVideo}
+                className="flex-1"
+                variant="secondary"
+              >
+                Download Recording
               </Button>
             )}
           </div>
